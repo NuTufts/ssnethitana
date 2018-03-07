@@ -66,7 +66,6 @@ int main(int nargs, char** argv ) {
   TTree tssnet( "thitaana", "Hit analyzaer" );
 
   // variables go here
-  
 
   for (int ientry=0; ientry<nentries; ientry++) {
 
