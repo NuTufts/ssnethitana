@@ -7,8 +7,8 @@
 
 // larlite
 // for source see: https://github.com/LArLight/larlite
-#include "DataFormat/mctrack.h"
-#include "DataFormat/mcshower.h"
+#include "DataFormat/hit.h"
+#include "LArUtil/LArProperties.h"
 
 // larcv
 // for source see: https://github.com/larbys/LArCV
@@ -40,13 +40,13 @@ int main(int nargs, char** argv ) {
 
   // parse the arguments
   std::string ssnetfile  = argv[1];
-  std::string mcinfofile = argv[2];
+  std::string hitfile    = argv[2];
   std::string outfile    = argv[3];
   
   // First, lets load the files
   larlitecv::DataCoordinator dataco; // allows us to read entry-aligned larlite and larcv files
   dataco.add_inputfile( ssnetfile, "larcv" );
-  dataco.add_inputfile( mcinfofile, "larlite" );
+  dataco.add_inputfile( hitfile, "larlite" );
   dataco.initialize();
   int nentries = dataco.get_nentries("larcv");
   std::cout << "LArCV/larlite files loaded" << std::endl;
@@ -62,26 +62,11 @@ int main(int nargs, char** argv ) {
     return 0;
   }
 
-  int numshower[4]; // planes u,v,y and then total
-  int numtrack[4];
-  int correcttrack[4];
-  int correctshower[4];  
-  int falsetrack[4];
-  int falseshower[4];  
-  int unlabeledtrack[4];
-  int unlabeledshower[4];  
-  int numabovethresh[4];
 
-  TTree tssnet( "tssnet", "SSNet analyzaer" );
-  tssnet.Branch( "numshower", numshower, "numshower[4]/I" );
-  tssnet.Branch( "numtrack", numtrack, "numtrack[4]/I" );
-  tssnet.Branch( "correctshower", correctshower, "correctshower[4]/I" );
-  tssnet.Branch( "correcttrack",  correcttrack,   "correcttrack[4]/I" );
-  tssnet.Branch( "falseshower", falseshower, "falseshower[4]/I" );
-  tssnet.Branch( "falsetrack",  falsetrack,   "falsetrack[4]/I" );
-  tssnet.Branch( "unlabeledshower", unlabeledshower, "unlabeledshower[4]/I" );
-  tssnet.Branch( "unlabeledtrack",  unlabeledtrack,  "unlabeledtrack[4]/I" );
-  tssnet.Branch( "numabovethresh", numabovethresh, "numabovethresh[4]/I" );  
+  TTree tssnet( "thitaana", "Hit analyzaer" );
+
+  // variables go here
+  
 
   for (int ientry=0; ientry<nentries; ientry++) {
 
@@ -92,12 +77,8 @@ int main(int nargs, char** argv ) {
 
     // we load the object containers for this event
 
-    // get the truth information (from the larlite file)
-    larlite::event_mctrack* ev_tracks   = (larlite::event_mctrack*) dataco.get_larlite_data( larlite::data::kMCTrack,  "mcreco" );
-    larlite::event_mcshower* ev_showers = (larlite::event_mcshower*)dataco.get_larlite_data( larlite::data::kMCShower, "mcreco" );
-
-    // get the images (from the larcv file)
-
+    // INPUT DATA
+    // ----------
     // ADC image
     larcv::EventImage2D* ev_images      = (larcv::EventImage2D*)dataco.get_larcv_data( larcv::kProductImage2D, "modimg" ); // ADC image
 
@@ -109,22 +90,13 @@ int main(int nargs, char** argv ) {
       ev_ssnetout[p] = (larcv::EventImage2D*)dataco.get_larcv_data( larcv::kProductImage2D, treename );
     }
 
-    // track ID image
-    larcv::EventImage2D* ev_trackid = (larcv::EventImage2D*)dataco.get_larcv_data( larcv::kProductImage2D, "instance" );
+    // list of hits
+    larlite::event_hit* ev_hits = (larlite::event_hit*)dataco.get_larlite_data( larlite::data::kHit, "gaushit" );
+    const std::vector<larlite::hit>& hit_v = *ev_hits;
+    int numhits = hit_v.size();
 
-    // fill the variables
+
     // first, zero out variables
-    for (int i=0; i<4; i++) {
-      numshower[i] = 0;
-      numtrack[i] = 0;
-      numabovethresh[i] = 0;
-      correctshower[i] = 0;
-      correcttrack[i] = 0;      
-      falseshower[i] = 0;
-      falsetrack[i] = 0;      
-      unlabeledshower[i] = 0;
-      unlabeledtrack[i] = 0;      
-    }
 
     // check number of ssnet images. sometimes we have none if the upstream algorithms
     // decide that there is nothing interesting in the image
@@ -136,25 +108,30 @@ int main(int nargs, char** argv ) {
       continue;
     }
 
-    // we loop through the tracks and showers and save the IDs there.
-    // we'll use this to determine the true label
-    std::set<int> showerids;
-    std::set<int> trackids;
-    for ( auto const& track : *ev_tracks ) {
-      trackids.insert( track.TrackID() );
-    }
-    for ( auto const& shower : *ev_showers ) {
-      showerids.insert( shower.TrackID() );
+    // drift velocity * us/tick:
+    // conversion factor for translating between time after trigger and tick position in image
+    const float image_tick_at_trigger = 3200; 
+    const float usec_per_tick = 0.5; // microseconds
+    const float cm_per_tick = larutil::LArProperties::GetME()->DriftVelocity()*0.5;
+    
+    // example loop over hits
+    for ( auto const& hit : hit_v ) {
+      // hit is type larlite::hit
+      // to see header go to https://github.com/larlight/larlite/blob/trunk/core/DataFormat/hit.h
+      int plane = hit.View();
+      const larlite::geo::WireID& wid = hit.WireID();
+      int wire  = (int)wid.Wire;
+      float peak = hit.PeakTime(); // us after trigger
+      int peak_tick = image_tick_at_trigger + peak/usec_per_tick;
+      float integral = hit.Integral();
     }
     
+    // loop over images
     for (int p=0; p<3; p++) {
       // loop over the planes
       // get the adc image for the plane. the container stores all three planes. we grab plane p.
       const larcv::Image2D& adcimg = ev_images->Image2DArray().at(p);
 
-      // get the adc image for the plane. the container stores all three planes. we grab plane p.
-      const larcv::Image2D& idimg = ev_trackid->Image2DArray().at(p);
-      
       // we get the judgement for each image
       // the ev_ssnetout container contains 2 images, the shower labels, and track labels.
       const larcv::Image2D& showerimg = ev_ssnetout[p]->Image2DArray().at(0);
@@ -185,71 +162,17 @@ int main(int nargs, char** argv ) {
 	  float adc = adcimg.pixel(radc,cadc);
 
 	  // if below threshold, skip, not interesting
-	  if ( adc<15 )
+	  if ( adc<5.0 )
 	    continue;
 
 	  // get the score
 	  float sh = showerimg.pixel(r,c);
 	  float tr = trackimg.pixel(r,c);
 
-	  // get the track id
-	  int id = idimg.pixel(radc,cadc);
-	  bool istrack = false;
-	  bool isshower = false;
-	  if ( trackids.find(id)!=trackids.end() ) {
-	    istrack = true;
-	  }
-	  if ( showerids.find(id)!=showerids.end() ) {
-	    isshower = true;
-	  }
-
-	  if ( !istrack && !isshower ) {
-	    if (id!=-1)
-	      isshower = true; // below threshold energy deposition
-	    // else
-	    //   std::cerr << "pixel is neither track nor shower at (" << r << "," << c << ") id=" << id << std::endl;	    
-	    //throw std::runtime_error();
-	  }
-
-	  // do we have scores for this?
-	  // to save time, we do not try to label the entire image
-	  // we check if any track+shower score was produced
-	  if ( sh+tr>0.2 ) {
-	    numabovethresh[p]++;
-	    if ( sh>tr ) {
-
-	      numshower[p]++;
-	      if ( isshower )
-		correctshower[p]++;
-	      else if ( istrack )
-		falseshower[p]++;
-	      else
-		unlabeledshower[p]++;
-	    }
-	    else {
-	      numtrack[p]++;
-	      if ( istrack )
-		correcttrack[p]++;
-	      else if (isshower )
-		falsetrack[p]++;
-	      else
-		unlabeledtrack[p]++;	      
-	    }
-	  }
 	  
 	}//end of col loop
       }//end of row loop
 
-      // add the plane totals to the overal total
-      numabovethresh[3] += numabovethresh[p];
-      numshower[3] += numshower[p];
-      numtrack[3] += numtrack[p];
-      correctshower[3] += correctshower[p];
-      correcttrack[3] += correcttrack[p];
-      falseshower[3] += falseshower[p];
-      falsetrack[3] += falsetrack[p];
-      unlabeledshower[3] += unlabeledshower[p];
-      unlabeledtrack[3] += unlabeledtrack[p];
     }//end of plane loop
 
     // fill the output tree
