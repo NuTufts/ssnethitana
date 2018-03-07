@@ -21,3 +21,11 @@ Then you can make the program
 You can run (on Meitner) a test example:
 
    ./test.sh
+
+
+## Example files
+
+If you want example files to develop with, look in `gridscripts/filelists/extbnb/mcc8v6_extbnb ... `
+
+It will have files per (run,subrun) pair.  Just download the files for a given subrun (should be an ssnetout and larlite-reco2d file).  
+You can pass this into the program.
